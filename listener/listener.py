@@ -2,64 +2,119 @@ import threading
 import time
 import socket
 import sys
+import subprocess
 import os
 import requests
 import keyboard
 import speech_recognition as sr
 
-TARGET_URL = "http://127.0.0.1:5678/show"
-WAKE_PHRASE = "wake up"
+ASSISTANT_EXE   = "assistant.exe"
+ASSISTANT_URL   = "http://127.0.0.1:5678/show"
+WAKE_PHRASE     = "wake up"
 
-# Prevent spamming the API
-last_open_time = 0
-OPEN_INTERVAL = 2  # seconds
+# assistant.exe の多重起動防止
+OPEN_INTERVAL   = 2        # 秒: /show を叩く最小間隔
+LAUNCH_TIMEOUT  = 15       # 秒: assistant 起動後、/show が応答するまで待つ上限
+POLL_INTERVAL   = 0.5      # 秒: 起動待ちポーリング間隔
+
+last_open_time  = 0
 
 # -----------------------------------------------------------------------
-# 二重起動防止: ソケットロックを使ってシングルインスタンスを保証する
+# シングルインスタンスロック（listener.exe 自身の二重起動防止）
 # -----------------------------------------------------------------------
-LOCK_PORT = 47823  # listener 専用のロックポート
+LOCK_PORT = 47823
 
-def acquire_single_instance_lock():
-    """
-    ソケットを使ってシングルインスタンスを保証する。
-    既に別の listener が動いている場合は False を返す。
-    """
+def acquire_single_instance_lock() -> bool:
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0)
     try:
         sock.bind(("127.0.0.1", LOCK_PORT))
-        # バインド成功 = 自分が唯一のインスタンス
-        # ソケットは GC されないようにグローバルに保持する
         globals()["_lock_socket"] = sock
         return True
     except OSError:
-        # 既に別のインスタンスが動いている
         sock.close()
         return False
 
+# -----------------------------------------------------------------------
+# assistant.exe のプロセス検出
+# -----------------------------------------------------------------------
+def is_assistant_running() -> bool:
+    """tasklist で assistant.exe が動いているか確認する。"""
+    try:
+        out = subprocess.check_output(
+            ["tasklist", "/FI", f"IMAGENAME eq {ASSISTANT_EXE}", "/NH"],
+            creationflags=0x08000000,   # CREATE_NO_WINDOW
+            stderr=subprocess.DEVNULL,
+        )
+        return ASSISTANT_EXE.lower() in out.decode(errors="ignore").lower()
+    except Exception:
+        return False
 
+def is_assistant_http_ready() -> bool:
+    """HTTP /show エンドポイントが応答するか確認する。"""
+    try:
+        # HEAD は /show に定義されていないので POST で確認
+        r = requests.post(ASSISTANT_URL, timeout=1)
+        return r.status_code < 500
+    except Exception:
+        return False
+
+def launch_assistant():
+    """assistant.exe をバックグラウンドで起動する。"""
+    print(f"[Listener] Launching {ASSISTANT_EXE}...")
+    try:
+        subprocess.Popen(
+            [ASSISTANT_EXE],
+            creationflags=0x08000000,   # CREATE_NO_WINDOW
+            close_fds=True,
+        )
+    except FileNotFoundError:
+        print(f"[Listener] ERROR: {ASSISTANT_EXE} not found.")
+    except Exception as e:
+        print(f"[Listener] ERROR launching {ASSISTANT_EXE}: {e}")
+
+# -----------------------------------------------------------------------
+# メインのトリガー処理
+# -----------------------------------------------------------------------
 def open_page():
+    """
+    1. assistant.exe が動いていなければ起動する。
+    2. HTTP /show を叩いてウィンドウを表示させる。
+    """
     global last_open_time
     now = time.time()
-
     if now - last_open_time < OPEN_INTERVAL:
         return
-
     last_open_time = now
 
-    print(f"[Listener] Triggering {TARGET_URL} ...")
+    # --- assistant が動いていなければ起動 ---
+    if not is_assistant_running():
+        launch_assistant()
+
+        # HTTP サーバーが Ready になるまで待つ
+        print("[Listener] Waiting for assistant HTTP server...")
+        deadline = time.time() + LAUNCH_TIMEOUT
+        while time.time() < deadline:
+            if is_assistant_http_ready():
+                print("[Listener] Assistant is ready.")
+                break
+            time.sleep(POLL_INTERVAL)
+        else:
+            print("[Listener] Assistant did not respond in time. Giving up.")
+            return
+
+    # --- /show を叩く ---
+    print(f"[Listener] Triggering {ASSISTANT_URL} ...")
     try:
-        response = requests.post(TARGET_URL, timeout=2)
-        print(f"[Listener] Response: {response.status_code}")
+        r = requests.post(ASSISTANT_URL, timeout=2)
+        print(f"[Listener] Response: {r.status_code}")
     except requests.exceptions.RequestException as e:
-        # assistant.exe がまだ起動していない場合は正常（待機中）
-        print(f"[Listener] assistant is not ready yet: {e}")
+        print(f"[Listener] Request failed: {e}")
 
-
+# -----------------------------------------------------------------------
+# スペースキー長押し監視（1 秒で発動）
+# -----------------------------------------------------------------------
 def space_listener():
-    """
-    SPACE を 1 秒間押し続けるとアシスタントを呼び出す。
-    """
     hold_start = None
 
     while True:
@@ -73,14 +128,15 @@ def space_listener():
                 # キーが離されるまで待機
                 while keyboard.is_pressed("space"):
                     time.sleep(0.05)
-
                 hold_start = None
         else:
             hold_start = None
 
         time.sleep(0.05)
 
-
+# -----------------------------------------------------------------------
+# 音声ウェイクワード検出
+# -----------------------------------------------------------------------
 def listen_loop():
     recognizer = sr.Recognizer()
     mic = sr.Microphone()
@@ -91,7 +147,7 @@ def listen_loop():
 
     print(f'[Listener] Listening for wake phrase: "{WAKE_PHRASE}"')
     print("[Listener] Hold SPACE for 1 second to show Assistant.")
-    print("[Listener] Running in background — assistant can be called anytime.\n")
+    print("[Listener] Running in background — assistant will be launched if needed.\n")
 
     while True:
         try:
@@ -115,14 +171,14 @@ def listen_loop():
             print("\n[Listener] Stopped.")
             break
 
-
+# -----------------------------------------------------------------------
+# エントリポイント
+# -----------------------------------------------------------------------
 if __name__ == "__main__":
-    # シングルインスタンスチェック
     if not acquire_single_instance_lock():
-        print("[Listener] Another instance of listener is already running. Exiting.")
+        print("[Listener] Another instance is already running. Exiting.")
         sys.exit(0)
 
     print("[Listener] Starting background listener...")
-
     threading.Thread(target=space_listener, daemon=True).start()
     listen_loop()
