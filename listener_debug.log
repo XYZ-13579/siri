@@ -1,0 +1,4 @@
+2026-06-29 17:30:30,863 - INFO - [Listener] Calibrating microphone for ambient noise (1 second)...
+2026-06-29 17:30:32,124 - INFO - [Listener] Listening for wake phrase: "wake up"
+2026-06-29 17:30:32,124 - INFO - [Listener] Hold SPACE for 3 seconds to show Assistant.
+2026-06-29 17:30:32,124 - INFO - [Listener] Press Ctrl+C to stop.
