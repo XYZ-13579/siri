@@ -1,0 +1,1195 @@
+<!doctype html>
+<html lang="ja">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+  <title>AI Assistant</title>
+  <style>
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+    }
+
+    /* ビジュアル調整パネルから書き換える変数(テキスト/背景の沈み用) */
+    :root {
+      --ai-text-size: 22px;
+      --ai-text-color: #ffffff;
+      --user-text-size: 26px;
+      --user-text-color: #ebebeb;
+      --scrim-strength: 1;
+    }
+
+    body {
+      margin: 0;
+      padding: 0;
+      background: #000;
+      color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+    }
+
+    #visualizerContainer {
+      position: absolute;
+      inset: 0;
+      z-index: 1;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 1s ease;
+    }
+
+    #visualizerCanvas {
+      width: 100%;
+      height: 100%;
+    }
+
+    .overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 10;
+      background: rgba(0, 0, 0, .7);
+      backdrop-filter: blur(5px);
+      transition: opacity .5s ease;
+      cursor: pointer;
+    }
+
+    .start-text {
+      font-size: 24px;
+      font-weight: 300;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: rgba(255, 255, 255, .8);
+      text-shadow: 0 0 10px rgba(255, 255, 255, .3);
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+
+      0%,
+      100% {
+        opacity: .6;
+        transform: scale(1);
+      }
+
+      50% {
+        opacity: 1;
+        transform: scale(1.05);
+      }
+    }
+
+    #langToggle {
+      position: absolute;
+      top: 18px;
+      right: 18px;
+      z-index: 20;
+      display: flex;
+      background: rgba(255, 255, 255, .08);
+      border: 1px solid rgba(255, 255, 255, .18);
+      border-radius: 20px;
+      overflow: hidden;
+      backdrop-filter: blur(6px);
+    }
+
+    .lang-btn {
+      padding: 6px 16px;
+      font-size: 13px;
+      font-weight: 500;
+      letter-spacing: 1px;
+      color: rgba(255, 255, 255, .45);
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      transition: color .2s, background .2s;
+      user-select: none;
+    }
+
+    .lang-btn.active {
+      background: rgba(255, 255, 255, .18);
+      color: #fff;
+    }
+
+    /* ── 設定ボタン・パネル ─────────────────────────────────────────────── */
+    #settingsToggle {
+      position: absolute;
+      top: 18px;
+      left: 18px;
+      z-index: 25;
+      width: 38px;
+      height: 38px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(255, 255, 255, .08);
+      border: 1px solid rgba(255, 255, 255, .18);
+      border-radius: 50%;
+      backdrop-filter: blur(6px);
+      color: rgba(255, 255, 255, .8);
+      font-size: 18px;
+      cursor: pointer;
+      transition: background .2s, transform .3s;
+    }
+
+    #settingsToggle:hover {
+      background: rgba(255, 255, 255, .16);
+    }
+
+    #settingsToggle.open {
+      transform: rotate(60deg);
+    }
+
+    #settingsPanel {
+      position: absolute;
+      top: 0;
+      left: 0;
+      bottom: 0;
+      width: 320px;
+      max-width: 88vw;
+      z-index: 24;
+      background: rgba(12, 12, 14, .88);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border-right: 1px solid rgba(255, 255, 255, .1);
+      box-shadow: 20px 0 40px rgba(0, 0, 0, .5);
+      transform: translateX(-100%);
+      transition: transform .35s ease;
+      overflow-y: auto;
+      padding: 74px 18px 24px;
+      -ms-overflow-style: none;
+      scrollbar-width: thin;
+    }
+
+    #settingsPanel.open {
+      transform: translateX(0);
+    }
+
+    .settings-header-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 6px;
+    }
+
+    .settings-title {
+      font-size: 13px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: rgba(255, 255, 255, .55);
+    }
+
+    .reset-all-btn {
+      font-size: 11px;
+      letter-spacing: .5px;
+      color: rgba(255, 255, 255, .55);
+      background: rgba(255, 255, 255, .08);
+      border: 1px solid rgba(255, 255, 255, .15);
+      border-radius: 12px;
+      padding: 5px 12px;
+      cursor: pointer;
+      transition: background .2s, color .2s;
+    }
+
+    .reset-all-btn:hover {
+      background: rgba(255, 255, 255, .18);
+      color: #fff;
+    }
+
+    .settings-group-title {
+      font-size: 11px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: rgba(255, 255, 255, .35);
+      margin: 22px 0 10px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid rgba(255, 255, 255, .1);
+    }
+
+    .settings-group-title:first-of-type {
+      margin-top: 10px;
+    }
+
+    .setting-row {
+      margin-bottom: 14px;
+    }
+
+    .setting-row label {
+      display: block;
+      font-size: 12px;
+      color: rgba(255, 255, 255, .7);
+      margin-bottom: 6px;
+    }
+
+    .setting-control {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .setting-control input[type="range"] {
+      flex: 1;
+      accent-color: #6be3ff;
+      cursor: pointer;
+    }
+
+    .setting-control input[type="color"] {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 34px;
+      height: 26px;
+      padding: 0;
+      border: 1px solid rgba(255, 255, 255, .25);
+      border-radius: 6px;
+      background: none;
+      cursor: pointer;
+    }
+
+    .setting-control input[type="color"]::-webkit-color-swatch-wrapper {
+      padding: 0;
+    }
+
+    .setting-control input[type="color"]::-webkit-color-swatch {
+      border: none;
+      border-radius: 5px;
+    }
+
+    .setting-control select {
+      flex: 1;
+      background: rgba(255, 255, 255, .08);
+      color: #fff;
+      border: 1px solid rgba(255, 255, 255, .2);
+      border-radius: 6px;
+      padding: 5px 6px;
+      font-size: 12px;
+    }
+
+    .setting-value {
+      font-size: 11px;
+      color: rgba(255, 255, 255, .45);
+      min-width: 38px;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .setting-reset {
+      flex: none;
+      width: 24px;
+      height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(255, 255, 255, .06);
+      border: 1px solid rgba(255, 255, 255, .15);
+      border-radius: 50%;
+      color: rgba(255, 255, 255, .55);
+      font-size: 13px;
+      line-height: 1;
+      cursor: pointer;
+      transition: background .2s, color .2s, transform .3s;
+    }
+
+    .setting-reset:hover {
+      background: rgba(255, 255, 255, .16);
+      color: #fff;
+      transform: rotate(-70deg);
+    }
+
+    .status-indicator {
+      position: absolute;
+      top: 22px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 12px;
+      color: rgba(255, 255, 255, .4);
+      text-transform: uppercase;
+      letter-spacing: 3px;
+      z-index: 5;
+      white-space: nowrap;
+    }
+
+    /* 波形の上に文字が乗っても読みやすいように、文字の背後だけを
+       下から上へフェードする暗いグラデーション + ぼかしで沈める。
+       ビジュアライザー全体を暗くするのではなく、文字周辺だけを
+       自然に沈めることで、波の見た目自体は損なわない。
+       濃さは --scrim-strength(設定パネル)で調整できる。 */
+    #textScrim {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 46vh;
+      z-index: 4;
+      pointer-events: none;
+      opacity: var(--scrim-strength);
+      background: linear-gradient(to top,
+          rgba(0, 0, 0, .82) 0%,
+          rgba(0, 0, 0, .55) 30%,
+          rgba(0, 0, 0, .0) 100%);
+      -webkit-backdrop-filter: blur(3px);
+      backdrop-filter: blur(3px);
+      -webkit-mask-image: linear-gradient(to top, #000 0%, #000 30%, transparent 100%);
+      mask-image: linear-gradient(to top, #000 0%, #000 30%, transparent 100%);
+    }
+
+    .chat-container {
+      position: absolute;
+      bottom: 10%;
+      width: 82%;
+      max-width: 820px;
+      text-align: center;
+      z-index: 5;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .ai-text {
+      font-size: var(--ai-text-size);
+      font-weight: 400;
+      color: var(--ai-text-color);
+      min-height: 30px;
+      /* 白いグロー(元の演出)に加え、黒い縁取りで
+         明るい波形の上でもコントラストを確保する */
+      text-shadow:
+        0 1px 3px rgba(0, 0, 0, .95),
+        0 2px 10px rgba(0, 0, 0, .85),
+        0 0 22px rgba(0, 0, 0, .6),
+        0 0 15px rgba(255, 255, 255, .35);
+      white-space: pre-wrap;
+      line-height: 1.5;
+    }
+
+    .user-text {
+      font-size: var(--user-text-size);
+      font-weight: 500;
+      color: var(--user-text-color);
+      min-height: 36px;
+      text-shadow:
+        0 1px 3px rgba(0, 0, 0, .95),
+        0 2px 10px rgba(0, 0, 0, .85),
+        0 0 22px rgba(0, 0, 0, .6),
+        0 0 15px rgba(255, 255, 255, .3);
+      transition: opacity .3s ease;
+    }
+  </style>
+</head>
+
+<body>
+
+  <button id="settingsToggle" title="表示設定">⚙</button>
+  <div id="settingsPanel"></div>
+
+  <div id="langToggle">
+    <button class="lang-btn active" data-lang="ja">日本語</button>
+    <button class="lang-btn" data-lang="en">English</button>
+  </div>
+
+  <div id="startOverlay" class="overlay">
+    <div class="start-text" id="startLabel">タップして開始</div>
+  </div>
+
+  <div class="status-indicator" id="statusText">Ready</div>
+
+  <div id="visualizerContainer">
+    <canvas id="visualizerCanvas"></canvas>
+  </div>
+
+  <div id="textScrim"></div>
+
+  <div class="chat-container">
+    <div class="ai-text" id="aiText"></div>
+    <div class="user-text" id="userText"></div>
+  </div>
+
+  <script>
+    // ── Elements ──────────────────────────────────────────────────────────────
+    const startOverlay = document.getElementById('startOverlay');
+    const startLabel = document.getElementById('startLabel');
+    const visContainer = document.getElementById('visualizerContainer');
+    const visCanvas = document.getElementById('visualizerCanvas');
+    const visCtx = visCanvas.getContext('2d');
+    const userText = document.getElementById('userText');
+    const aiText = document.getElementById('aiText');
+    const statusText = document.getElementById('statusText');
+    const langToggle = document.getElementById('langToggle');
+    const settingsToggle = document.getElementById('settingsToggle');
+    const settingsPanel = document.getElementById('settingsPanel');
+
+    // ── i18n ──────────────────────────────────────────────────────────────────
+    let currentLang = 'ja';
+    const i18n = {
+      ja: {
+        start: 'Tap to Start',
+        listening: 'Listening...',
+        thinking: 'Thinking...',
+        speaking: 'Speaking...',
+        error: 'Error occurred. Please try again.',
+        micError: 'Microphone access not granted.',
+        noSpeech: 'Your browser does not support speech recognition. Please use Chrome.',
+        sysPrompt: 'You are a kind and concise AI assistant. Please answer naturally in Japanese.',
+        recogLang: 'ja-JP',
+        ttsLang: 'ja-JP',
+      },
+      en: {
+        start: 'Tap to Start',
+        listening: 'Listening...',
+        thinking: 'Thinking...',
+        speaking: 'Speaking...',
+        error: 'An error occurred. Please try again.',
+        micError: 'Microphone access was denied.',
+        noSpeech: 'Your browser does not support speech recognition. Please use Chrome.',
+        sysPrompt: 'You are a helpful, concise AI assistant. Please respond in English naturally as if in a conversation.',
+        recogLang: 'en-US',
+        ttsLang: 'en-US',
+      },
+    };
+    const t = key => i18n[currentLang][key];
+
+    // ── State ─────────────────────────────────────────────────────────────────
+    let isActive = false;
+    let isGenerating = false;
+    let isSpeaking = false;
+    let activeUtterances = 0;
+    let finalTranscript = '';
+    let silenceTimer;
+    // 生成(ストリーミング)が完全に終わったかどうか。
+    // これがtrueになるまでは、TTSキューが一時的に空になっても認識を再開しない。
+    let streamFinished = true;
+    // 現在アクティブなrecognitionインスタンスを識別するID。
+    // 古いインスタンスのイベントを無視するためのガードに使う。
+    let recognitionId = 0;
+    let recognitionActive = false;
+    let pendingLang = null;
+    let restartTimer = null;
+    // AIが「今まさに話している/話し終えた」テキスト。
+    // 認識結果がこれとよく似ている場合はスピーカー音声を
+    // マイクが拾ってしまった「エコー」とみなして無視する。
+    let currentAIReply = '';
+    // 生成中のfetchを中断するためのAbortController(バージイン用)
+    let currentAbortController = null;
+    const serverUrl = 'http://127.0.0.1:8000/v1/chat/completions';
+
+    // recognitionを二重起動しないようにガードしつつ開始する。
+    // AI発話中/生成中でもユーザーが割り込めるよう、常時リスニングを維持する。
+    function startRecognition() {
+      if (!recognition || !isActive || recognitionActive) return;
+      try {
+        recognition.start();
+      } catch (e) {
+        console.error('recognition.start failed:', e);
+      }
+    }
+
+    // 少し遅延させてから再開をスケジュールする(状態変化中の衝突を避けるため)
+    function scheduleRestart(delay = 150) {
+      clearTimeout(restartTimer);
+      restartTimer = setTimeout(() => {
+        if (isActive) startRecognition();
+      }, delay);
+    }
+
+    // ── エコー(AI自身の声)判定 ──────────────────────────────────────────────
+    // 記号・空白を取り除いて比較しやすくする
+    function normalizeForCompare(s) {
+      return s.replace(/[\s\u3000、。！？!?.,，・「」『』"'’“”()（）\-—…]/g, '').toLowerCase();
+    }
+
+    // 最長共通"部分文字列"の長さ(部分列ではない)を求める簡易DP
+    function longestCommonSubstringLen(a, b) {
+      if (!a || !b) return 0;
+      let prevRow = new Array(b.length + 1).fill(0);
+      let maxLen = 0;
+      for (let i = 1; i <= a.length; i++) {
+        const curRow = new Array(b.length + 1).fill(0);
+        for (let j = 1; j <= b.length; j++) {
+          if (a[i - 1] === b[j - 1]) {
+            curRow[j] = prevRow[j - 1] + 1;
+            if (curRow[j] > maxLen) maxLen = curRow[j];
+          }
+        }
+        prevRow = curRow;
+      }
+      return maxLen;
+    }
+
+    // 認識結果が「AI自身が話している内容」と大きく重なっていれば、
+    // マイクがスピーカー音声を拾ってしまったエコーの可能性が高いと判断する。
+    // ※ ブラウザのSpeechRecognitionにはAI音声だけを除外する仕組みが無いため、
+    //    完全ではないヒューリスティックです(ヘッドホン使用時が最も確実)。
+    function looksLikeEcho(candidate) {
+      const cand = normalizeForCompare(candidate);
+      if (!cand) return true;
+      const spoken = normalizeForCompare(currentAIReply);
+      if (!spoken) return false;
+      if (spoken.includes(cand)) return true;
+      const lcs = longestCommonSubstringLen(cand, spoken);
+      return cand.length > 0 && (lcs / cand.length) > 0.6;
+    }
+
+    // AI応答中(生成中/発話中)にユーザーが話しかけてきたときの割り込み処理。
+    // 現在の生成・読み上げを即座に中断し、ユーザーの発話受付に切り替える。
+    function bargeIn() {
+      clearTimeout(silenceTimer);
+      clearTimeout(restartTimer);
+      if (currentAbortController) {
+        try { currentAbortController.abort(); } catch (_) { }
+        currentAbortController = null;
+      }
+      window.speechSynthesis.cancel();
+      activeUtterances = 0;
+      isSpeaking = false;
+      isGenerating = false;
+      streamFinished = true;
+      currentAIReply = '';
+      finalTranscript = '';
+      aiText.textContent = '';
+      userText.style.opacity = '1';
+      statusText.textContent = t('listening');
+    }
+
+    // 生成・読み上げが完全に終わったときに呼ぶ後始末処理
+    function finishGenerationAndListen() {
+      clearTimeout(restartTimer);
+      isGenerating = false;
+      isSpeaking = false;
+      finalTranscript = '';
+      userText.textContent = '';
+      userText.style.opacity = '1';
+      statusText.textContent = t('listening');
+      startRecognition();
+    }
+
+    // ── Language toggle ───────────────────────────────────────────────────────
+    function applyLang(lang) {
+      currentLang = lang;
+      document.querySelectorAll('.lang-btn').forEach(b =>
+        b.classList.toggle('active', b.dataset.lang === lang));
+      startLabel.textContent = t('start');
+
+      if (!isActive) return;
+
+      clearTimeout(restartTimer);
+      pendingLang = lang;
+
+      if (recognition) {
+        try {
+          recognition.lang = t('recogLang');
+        } catch (e) {
+          console.error('Error updating recognition language:', e);
+        }
+      }
+
+      if (!recognitionActive) {
+        pendingLang = null;
+        // initRecognition()内でrecognitionIdが更新されるため、
+        // 古いインスタンスの遅延イベントは自動的に無視される
+        initRecognition();
+        if (!isGenerating && !isSpeaking) startRecognition();
+      }
+    }
+    langToggle.addEventListener('click', e => {
+      const btn = e.target.closest('.lang-btn');
+      if (btn && btn.dataset.lang !== currentLang) applyLang(btn.dataset.lang);
+    });
+
+    // ── TTS ──────────────────────────────────────────────────────────────────
+    let voices = [];
+    function loadVoices() { voices = window.speechSynthesis.getVoices(); }
+    loadVoices();
+    if (window.speechSynthesis.onvoiceschanged !== undefined)
+      window.speechSynthesis.onvoiceschanged = loadVoices;
+
+    function pickVoice(lang) {
+      return voices.find(v => v.lang === lang)
+        || voices.find(v => v.lang.startsWith(lang.split('-')[0]))
+        || null;
+    }
+
+    // 参考コードと同じ設計:
+    // TTS が全部終わったら recognition.start() で再起動する
+    function speakSentence(text, lang) {
+      if (!text.trim()) return;
+      const utt = new SpeechSynthesisUtterance(text);
+      utt.lang = lang;
+      utt.rate = 1.0; utt.pitch = 1.0; utt.volume = 1.0;
+      const v = pickVoice(lang);
+      if (v) utt.voice = v;
+
+      activeUtterances++;
+      isSpeaking = true;
+
+      const onDone = () => {
+        activeUtterances = Math.max(0, activeUtterances - 1);
+        // キューが一時的に空でも、ストリーミングがまだ続いていれば
+        // (streamFinished === false) 認識は再開しない。
+        // これが「読み上げ中に音声認識してしまう」不具合の原因だった。
+        if (activeUtterances === 0 && streamFinished) {
+          finishGenerationAndListen();
+        }
+      };
+      utt.onend = onDone;
+      utt.onerror = onDone;
+
+      window.speechSynthesis.speak(utt);
+    }
+
+    // ── Speech Recognition ────────────────────────────────────────────────────
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    let recognition;
+
+    function initRecognition() {
+      if (!SR) { alert(t('noSpeech')); return; }
+
+      // 言語変更時などにインスタンスを作り直す。
+      // recognitionIdを進めることで、古いインスタンスから遅れて届く
+      // イベント(onend/onerror等)は下のガードで無視されるようにする。
+      const myId = ++recognitionId;
+      recognition = new SR();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = t('recogLang');
+
+      recognition.onstart = () => {
+        if (myId !== recognitionId) return;
+        recognitionActive = true;
+        visContainer.style.opacity = '1';
+        userText.style.opacity = '1';
+        // 生成中/発話中に再起動された場合はステータス表示を上書きしない
+        if (!isGenerating && !isSpeaking) statusText.textContent = t('listening');
+      };
+
+      recognition.onresult = (event) => {
+        if (myId !== recognitionId) return;
+
+        let interim = '';
+        let finalChunk = '';
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          if (event.results[i].isFinal)
+            finalChunk += event.results[i][0].transcript;
+          else
+            interim += event.results[i][0].transcript;
+        }
+        const candidate = (finalChunk + interim).trim();
+        if (!candidate) return;
+
+        if (isGenerating || isSpeaking) {
+          // ノイズ的な短すぎる断片は無視
+          if (candidate.replace(/\s/g, '').length < 2) return;
+          // AI発話中は、AI自身の声を拾っただけ(エコー)かどうかを判定する
+          if (isSpeaking && looksLikeEcho(candidate)) return;
+          // それ以外は「ユーザーが割り込んで話しかけた」と判断
+          bargeIn();
+        }
+
+        if (finalChunk) finalTranscript += finalChunk;
+        const current = finalTranscript + interim;
+        if (!current.trim()) return;
+
+        userText.textContent = current;
+        aiText.textContent = '';
+        clearTimeout(silenceTimer);
+        silenceTimer = setTimeout(() => {
+          if (current.trim()) sendToAI(current.trim());
+        }, 1500);
+      };
+
+      recognition.onerror = (e) => {
+        if (myId !== recognitionId) return;
+        console.warn('Speech recognition error:', e.error);
+        if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+          // マイク許可が無い場合は再試行しても無駄なので止める
+          isActive = false;
+          statusText.textContent = t('micError');
+          return;
+        }
+        // no-speech / aborted / network / audio-capture などは
+        // このあと必ず onend が発火するので、再起動処理はそちらに一本化する
+        // (ここでも再起動すると二重起動エラーの原因になり不安定化するため)
+      };
+
+      // AI発話中/生成中でもバージイン(割り込み)を受け付けるため、
+      // 同一インスタンスを使い回して常時リスニングを維持する。
+      recognition.onend = () => {
+        if (myId !== recognitionId) return;
+        recognitionActive = false;
+
+        if (pendingLang) {
+          const nextLang = pendingLang;
+          pendingLang = null;
+          if (isActive) {
+            currentLang = nextLang;
+            document.querySelectorAll('.lang-btn').forEach(b =>
+              b.classList.toggle('active', b.dataset.lang === nextLang));
+            initRecognition();
+            startRecognition();
+            return;
+          }
+        }
+
+        if (isActive) {
+          scheduleRestart();
+        }
+      };
+    }
+
+    // ── AI call ───────────────────────────────────────────────────────────────
+    async function sendToAI(promptText) {
+      isGenerating = true;
+      streamFinished = false;
+      currentAIReply = '';
+      finalTranscript = '';
+      clearTimeout(silenceTimer);
+      clearTimeout(restartTimer);
+
+      // マイクは止めない(=常時リスニング)。ユーザーがAIの発話中に
+      // 話しかけてきたら、onresult側の判定でバージイン(割り込み)する。
+      statusText.textContent = t('thinking');
+
+      window.speechSynthesis.cancel();
+      activeUtterances = 0;
+      isSpeaking = false;
+
+      const ttsLang = t('ttsLang');
+
+      // このリクエストを後から中断できるようにする(バージイン用)
+      const controller = new AbortController();
+      currentAbortController = controller;
+
+      try {
+        const response = await fetch(serverUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
+          body: JSON.stringify({
+            messages: [
+              { role: 'system', content: t('sysPrompt') },
+              { role: 'user', content: promptText },
+            ],
+            temperature: 0.7,
+            max_tokens: 500,
+            stream: true,
+          }),
+        });
+        if (!response.ok) throw new Error('API Error');
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let fullReply = '';
+        let speakBuf = '';
+        statusText.textContent = t('speaking');
+        userText.style.opacity = '0.5';
+
+        const sentenceEnds = /[.!?。！？\n]/;
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const lines = decoder.decode(value, { stream: true }).split('\n');
+          for (const line of lines) {
+            if (!line.startsWith('data: ') || line === 'data: [DONE]') continue;
+            try {
+              const token = JSON.parse(line.slice(6)).choices[0].delta.content;
+              if (!token) continue;
+              fullReply += token;
+              speakBuf += token;
+              // AIが今まさに話している(話す予定の)テキストとして保持しておき、
+              // マイクがこの音声を拾ってしまった場合のエコー判定に使う。
+              currentAIReply = fullReply;
+              aiText.textContent = fullReply;
+              let m;
+              while ((m = speakBuf.match(sentenceEnds)) !== null) {
+                const idx = m.index + m[0].length;
+                const s = speakBuf.substring(0, idx);
+                speakBuf = speakBuf.substring(idx);
+                if (s.trim()) speakSentence(s, ttsLang);
+              }
+            } catch (_) { }
+          }
+        }
+
+        // ストリーミング自体はここで完了。
+        // まだ再生中の発話が残っていれば、それらが終わるのを
+        // speakSentenceのonDoneが検知してfinishGenerationAndListen()を呼ぶ。
+        streamFinished = true;
+        currentAbortController = null;
+
+        // 発話すべき内容が何もなかった場合は即リスニングに戻る
+        if (activeUtterances === 0) {
+          finishGenerationAndListen();
+        }
+
+      } catch (e) {
+        if (e.name === 'AbortError') {
+          // ユーザーによるバージイン(割り込み)で中断された。
+          // 状態はbargeIn()側で既にリセット済みなのでここでは何もしない。
+          return;
+        }
+        console.error(e);
+        window.speechSynthesis.cancel();
+        activeUtterances = 0;
+        isSpeaking = false;
+        streamFinished = true;
+        currentAbortController = null;
+        aiText.textContent = t('error');
+        finishGenerationAndListen();
+      }
+    }
+
+    // ── Audio Visualizer ──────────────────────────────────────────────────────
+    let audioCtx, analyser, VW, VH;
+
+    // マイク由来の実データ(リスニング中の表示に使う)
+    let micFreqs = null;
+    // AI発話中に使う「疑似」データ。マイクの音声認識には一切関与しない。
+    let simFreqs = new Uint8Array(32);
+    // 実際に描画で使われている配列(mic / simを切り替える)
+    let freqs = null;
+
+    // 発話の立ち上がり・立ち下がりを滑らかにするためのエンベロープ
+    let simEnergy = 0;
+    let simTime = 0;
+
+    // 設定パネルから調整できるビジュアルパラメーター。
+    // ここが「現在の値」。defaultsが「リセット時に戻る値」。
+    const opts = {
+      smoothing: 0.6, fft: 8, minDecibels: -70, gate: 0,
+      color1: '#00ffc8', color2: '#ff3296', color3: '#32ff64',
+      fillOpacity: 0.5, lineWidth: 1.5, blend: 'screen',
+      shift: 60, width: 70, amp: 1, glow: 15,
+      noiseAmount: 18, flickerAmount: 25, waveSpeed: 0.06, energySpeed: 0.08,
+    };
+    const shuffle = [1, 3, 0, 4, 2];
+    const range = n => Array.from({ length: n }, (_, i) => i);
+    // ゲート(閾値)を下回る値は0に落とし、静かな時のチラつきを抑える
+    const getFreq = (ch, i) => {
+      if (!freqs) return 0;
+      const raw = freqs[2 * ch + shuffle[i] * 6] || 0;
+      const gated = raw - opts.gate;
+      return gated > 0 ? gated : 0;
+    };
+    const scaleY = i => (3 - Math.abs(2 - i)) / 3 * opts.amp;
+
+    // "#rrggbb" → "r,g,b"(canvasのrgba()テンプレート用)
+    function hexToRgbStr(hex) {
+      const h = (hex || '#ffffff').replace('#', '');
+      const r = parseInt(h.substring(0, 2), 16) || 0;
+      const g = parseInt(h.substring(2, 4), 16) || 0;
+      const b = parseInt(h.substring(4, 6), 16) || 0;
+      return `${r},${g},${b}`;
+    }
+
+    function resizeCanvas() {
+      VW = visCanvas.width = window.innerWidth;
+      VH = visCanvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    // AI発話中に自動で波打たせるための疑似周波数データを生成する。
+    // 複数の位相のずれたsin波 + 微小なノイズを重ねることで、
+    // 実際のオーディオっぽい自然な揺らぎを作る。
+    function updateSimFreqs() {
+      simTime += opts.waveSpeed;
+      for (let i = 0; i < simFreqs.length; i++) {
+        const base = 90 + 60 * Math.sin(simTime * (1.3 + i * 0.07) + i * 0.9);
+        const flicker = opts.flickerAmount * Math.sin(simTime * (4.1 + (i % 5)) + i * 1.7);
+        const noise = (Math.random() - 0.5) * opts.noiseAmount;
+        const v = (base + flicker + noise) * simEnergy;
+        simFreqs[i] = Math.max(0, Math.min(255, v));
+      }
+    }
+
+    function drawPath(ch) {
+      if (!freqs) return;
+      const col = hexToRgbStr(opts[`color${ch + 1}`]);
+      visCtx.fillStyle = `rgba(${col},${opts.fillOpacity})`;
+      visCtx.strokeStyle = visCtx.shadowColor = `rgb(${col})`;
+      visCtx.lineWidth = opts.lineWidth;
+      visCtx.shadowBlur = opts.glow;
+      visCtx.globalCompositeOperation = opts.blend;
+
+      const m = VH / 2, h = VH;
+      const off = (VW - 15 * opts.width) / 2;
+      const x = range(15).map(i => off + ch * opts.shift + i * opts.width);
+      const y = range(5).map(i => Math.max(0, m - scaleY(i) * getFreq(ch, i)));
+
+      visCtx.beginPath();
+      visCtx.moveTo(0, m); visCtx.lineTo(x[0], m + 1);
+      visCtx.bezierCurveTo(x[1], m + 1, x[2], y[0], x[3], y[0]);
+      visCtx.bezierCurveTo(x[4], y[0], x[4], y[1], x[5], y[1]);
+      visCtx.bezierCurveTo(x[6], y[1], x[6], y[2], x[7], y[2]);
+      visCtx.bezierCurveTo(x[8], y[2], x[8], y[3], x[9], y[3]);
+      visCtx.bezierCurveTo(x[10], y[3], x[10], y[4], x[11], y[4]);
+      visCtx.bezierCurveTo(x[12], y[4], x[12], m, x[13], m);
+      visCtx.lineTo(VW, m + 1); visCtx.lineTo(x[13], m - 1);
+      visCtx.bezierCurveTo(x[12], m, x[12], h - y[4], x[11], h - y[4]);
+      visCtx.bezierCurveTo(x[10], h - y[4], x[10], h - y[3], x[9], h - y[3]);
+      visCtx.bezierCurveTo(x[8], h - y[3], x[8], h - y[2], x[7], h - y[2]);
+      visCtx.bezierCurveTo(x[6], h - y[2], x[6], h - y[1], x[5], h - y[1]);
+      visCtx.bezierCurveTo(x[4], h - y[1], x[4], h - y[0], x[3], h - y[0]);
+      visCtx.bezierCurveTo(x[2], h - y[0], x[1], m, x[0], m);
+      visCtx.lineTo(0, m);
+      visCtx.fill(); visCtx.stroke();
+    }
+
+    function visualize() {
+      // AI発話中は、マイク入力を一切参照せず、疑似データだけで波形を駆動する。
+      // isSpeaking の切り替わりに合わせて simEnergy を滑らかに増減させることで、
+      // 発話の始まり・終わりが自然な立ち上がり/立ち下がりになる。
+      const target = isSpeaking ? 1 : 0;
+      simEnergy += (target - simEnergy) * opts.energySpeed;
+
+      if (isSpeaking || simEnergy > 0.01) {
+        updateSimFreqs();
+        freqs = simFreqs;
+      } else if (analyser && micFreqs) {
+        analyser.smoothingTimeConstant = opts.smoothing;
+        analyser.fftSize = Math.pow(2, opts.fft);
+        analyser.minDecibels = opts.minDecibels;
+        analyser.maxDecibels = 0;
+        analyser.getByteFrequencyData(micFreqs);
+        freqs = micFreqs;
+      }
+
+      visCtx.clearRect(0, 0, VW, VH);
+      drawPath(0); drawPath(1); drawPath(2);
+      requestAnimationFrame(visualize);
+    }
+
+    async function initAudio() {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === 'suspended') await audioCtx.resume();
+      try {
+        // echoCancellation等を有効にし、スピーカーから出るAI音声が
+        // マイクに回り込むのをブラウザ/OS側である程度抑えてもらう。
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+        });
+        analyser = audioCtx.createAnalyser();
+        audioCtx.createMediaStreamSource(stream).connect(analyser);
+        micFreqs = new Uint8Array(analyser.frequencyBinCount);
+        freqs = micFreqs;
+        visualize();
+      } catch (e) {
+        console.error('Mic error', e);
+        alert(t('micError'));
+      }
+    }
+
+    // ── 表示設定パネル ────────────────────────────────────────────────────────
+    // すべての値の「初期値(リセット先)」。opts / CSS変数のどちらに
+    // 反映するかは applySetting() 側で振り分ける。
+    const settingDefaults = {
+      color1: '#00ffc8', color2: '#ff3296', color3: '#32ff64', blend: 'screen',
+      fillOpacity: 0.5, lineWidth: 1.5, glow: 15, amp: 1, width: 70, shift: 60,
+      smoothing: 0.6, minDecibels: -70, gate: 0,
+      noiseAmount: 18, flickerAmount: 25, waveSpeed: 0.06, energySpeed: 0.08,
+      scrimStrength: 1,
+      aiTextSize: 22, aiTextColor: '#ffffff', userTextSize: 26, userTextColor: '#ebebeb',
+    };
+    // 現在値(パネルのinputはこれを表示・更新する)
+    const settingValues = { ...settingDefaults };
+
+    // パネルに並べる項目定義。groupが指定されている行の直前に見出しが入る。
+    const fieldDefs = [
+      { group: '波の色', key: 'color1', label: '色 1', type: 'color' },
+      { key: 'color2', label: '色 2', type: 'color' },
+      { key: 'color3', label: '色 3', type: 'color' },
+      { key: 'blend', label: '合成モード', type: 'select', options: [
+          { v: 'screen', l: 'Screen' }, { v: 'lighten', l: 'Lighten' },
+          { v: 'overlay', l: 'Overlay' }, { v: 'soft-light', l: 'Soft Light' },
+          { v: 'difference', l: 'Difference' }, { v: 'source-over', l: 'Normal' },
+        ] },
+
+      { group: '波形の形', key: 'fillOpacity', label: '塗りつぶし不透明度', type: 'range', min: 0, max: 1, step: 0.01 },
+      { key: 'lineWidth', label: '線の太さ', type: 'range', min: 0.5, max: 6, step: 0.1 },
+      { key: 'glow', label: '発光の強さ', type: 'range', min: 0, max: 50, step: 1 },
+      { key: 'amp', label: '振幅(高さ)', type: 'range', min: 0, max: 3, step: 0.05 },
+      { key: 'width', label: '波の幅', type: 'range', min: 20, max: 140, step: 1 },
+      { key: 'shift', label: 'レイヤーのずれ幅', type: 'range', min: 0, max: 150, step: 1 },
+
+      { group: '感度・ノイズ・閾値', key: 'smoothing', label: 'マイク時の滑らかさ', type: 'range', min: 0, max: 0.95, step: 0.01 },
+      { key: 'minDecibels', label: 'マイク感度しきい値', type: 'range', min: -100, max: -10, step: 1 },
+      { key: 'gate', label: 'ノイズゲート閾値', type: 'range', min: 0, max: 80, step: 1 },
+      { key: 'noiseAmount', label: 'ランダムノイズ量', type: 'range', min: 0, max: 60, step: 1 },
+      { key: 'flickerAmount', label: 'ゆらぎ(フリッカー)量', type: 'range', min: 0, max: 60, step: 1 },
+
+      { group: 'スピード', key: 'waveSpeed', label: '波のうねりスピード', type: 'range', min: 0.01, max: 0.3, step: 0.01 },
+      { key: 'energySpeed', label: '発話開始/終了の反応速度', type: 'range', min: 0.01, max: 0.3, step: 0.01 },
+
+      { group: '背景の沈み', key: 'scrimStrength', label: '文字下の暗さ', type: 'range', min: 0, max: 1, step: 0.05 },
+
+      { group: 'テキスト', key: 'aiTextSize', label: 'AIテキストサイズ', type: 'range', min: 12, max: 40, step: 1, unit: 'px' },
+      { key: 'aiTextColor', label: 'AIテキストカラー', type: 'color' },
+      { key: 'userTextSize', label: 'ユーザーテキストサイズ', type: 'range', min: 12, max: 44, step: 1, unit: 'px' },
+      { key: 'userTextColor', label: 'ユーザーテキストカラー', type: 'color' },
+    ];
+
+    // 実際にopts / CSS変数へ反映する
+    function applySetting(key, value) {
+      settingValues[key] = value;
+      switch (key) {
+        case 'color1': case 'color2': case 'color3':
+          opts[key] = value; break;
+        case 'blend': opts.blend = value; break;
+        case 'fillOpacity': opts.fillOpacity = parseFloat(value); break;
+        case 'lineWidth': opts.lineWidth = parseFloat(value); break;
+        case 'glow': opts.glow = parseFloat(value); break;
+        case 'amp': opts.amp = parseFloat(value); break;
+        case 'width': opts.width = parseFloat(value); break;
+        case 'shift': opts.shift = parseFloat(value); break;
+        case 'smoothing': opts.smoothing = parseFloat(value); break;
+        case 'minDecibels': opts.minDecibels = parseFloat(value); break;
+        case 'gate': opts.gate = parseFloat(value); break;
+        case 'noiseAmount': opts.noiseAmount = parseFloat(value); break;
+        case 'flickerAmount': opts.flickerAmount = parseFloat(value); break;
+        case 'waveSpeed': opts.waveSpeed = parseFloat(value); break;
+        case 'energySpeed': opts.energySpeed = parseFloat(value); break;
+        case 'scrimStrength':
+          document.documentElement.style.setProperty('--scrim-strength', value); break;
+        case 'aiTextSize':
+          document.documentElement.style.setProperty('--ai-text-size', value + 'px'); break;
+        case 'aiTextColor':
+          document.documentElement.style.setProperty('--ai-text-color', value); break;
+        case 'userTextSize':
+          document.documentElement.style.setProperty('--user-text-size', value + 'px'); break;
+        case 'userTextColor':
+          document.documentElement.style.setProperty('--user-text-color', value); break;
+      }
+    }
+
+    // 指定した1項目だけをinput要素・値表示ごとデフォルトへ戻す
+    function resetField(def) {
+      const value = settingDefaults[def.key];
+      const input = document.getElementById('set-' + def.key);
+      if (input) input.value = value;
+      const valSpan = document.getElementById('set-' + def.key + '-val');
+      if (valSpan) valSpan.textContent = (def.unit || '') ? value + def.unit : value;
+      applySetting(def.key, value);
+    }
+
+    function buildSettingsPanel() {
+      let html = `
+        <div class="settings-header-row">
+          <span class="settings-title">表示設定</span>
+          <button type="button" class="reset-all-btn" id="resetAllBtn">すべてリセット</button>
+        </div>`;
+
+      fieldDefs.forEach(def => {
+        if (def.group) html += `<div class="settings-group-title">${def.group}</div>`;
+
+        const value = settingValues[def.key];
+        let controlHtml = '';
+
+        if (def.type === 'color') {
+          controlHtml = `<input type="color" id="set-${def.key}" value="${value}">`;
+        } else if (def.type === 'select') {
+          const optionsHtml = def.options.map(o =>
+            `<option value="${o.v}" ${o.v === value ? 'selected' : ''}>${o.l}</option>`).join('');
+          controlHtml = `<select id="set-${def.key}">${optionsHtml}</select>`;
+        } else {
+          const shown = (def.unit || '') ? value + def.unit : value;
+          controlHtml = `
+            <input type="range" id="set-${def.key}" min="${def.min}" max="${def.max}" step="${def.step}" value="${value}">
+            <span class="setting-value" id="set-${def.key}-val">${shown}</span>`;
+        }
+
+        html += `
+          <div class="setting-row">
+            <label for="set-${def.key}">${def.label}</label>
+            <div class="setting-control">
+              ${controlHtml}
+              <button type="button" class="setting-reset" data-key="${def.key}" title="この項目をリセット">↺</button>
+            </div>
+          </div>`;
+      });
+
+      settingsPanel.innerHTML = html;
+
+      // 各コントロールの変更を反映
+      fieldDefs.forEach(def => {
+        const input = document.getElementById('set-' + def.key);
+        if (!input) return;
+        const handler = () => {
+          const v = input.value;
+          applySetting(def.key, def.type === 'range' ? parseFloat(v) : v);
+          const valSpan = document.getElementById('set-' + def.key + '-val');
+          if (valSpan) valSpan.textContent = (def.unit || '') ? v + def.unit : v;
+        };
+        input.addEventListener('input', handler);
+        input.addEventListener('change', handler);
+      });
+
+      // 個別リセットボタン
+      settingsPanel.querySelectorAll('.setting-reset').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const def = fieldDefs.find(f => f.key === btn.dataset.key);
+          if (def) resetField(def);
+        });
+      });
+
+      // 全項目リセット
+      document.getElementById('resetAllBtn').addEventListener('click', () => {
+        fieldDefs.forEach(resetField);
+      });
+    }
+
+    buildSettingsPanel();
+    // 現在値(=初期値)をCSS変数/optsへ反映しておく
+    fieldDefs.forEach(def => applySetting(def.key, settingValues[def.key]));
+
+    settingsToggle.addEventListener('click', () => {
+      const isOpen = settingsPanel.classList.toggle('open');
+      settingsToggle.classList.toggle('open', isOpen);
+    });
+
+    // ── Check Backend ──────────────────────────────────────────────────────────
+    async function waitForBackend() {
+      startLabel.textContent = "Waiting for Backend...";
+      startOverlay.style.pointerEvents = "none";
+
+      while (true) {
+        try {
+          const res = await fetch("http://127.0.0.1:8000/v1/models");
+          if (res.ok) {
+            startLabel.textContent = "AI Assistant Ready - " + t('start');
+            startOverlay.style.pointerEvents = "auto";
+            break;
+          }
+        } catch (e) {
+          // ignore error and retry
+        }
+        await new Promise(r => setTimeout(r, 1000));
+      }
+    }
+
+    waitForBackend();
+
+    // ── Start ─────────────────────────────────────────────────────────────────
+    startOverlay.addEventListener('click', async () => {
+      startOverlay.style.opacity = '0';
+      setTimeout(() => startOverlay.style.display = 'none', 500);
+      isActive = true;
+      streamFinished = true;
+      loadVoices();
+      await initAudio();
+      initRecognition();
+      startRecognition();
+    });
+  </script>
+</body>
+
+</html>
