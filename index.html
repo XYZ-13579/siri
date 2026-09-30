@@ -41,7 +41,7 @@
       inset: 0;
       z-index: 1;
       pointer-events: none;
-      opacity: 0;
+      opacity: 1;
       transition: opacity 1s ease;
     }
 
@@ -342,7 +342,7 @@
 
     .chat-container {
       position: absolute;
-      bottom: 10%;
+      bottom: 90px;
       width: 82%;
       max-width: 820px;
       text-align: center;
@@ -350,6 +350,59 @@
       display: flex;
       flex-direction: column;
       gap: 18px;
+    }
+
+    .input-container {
+      position: absolute;
+      bottom: 30px;
+      width: 82%;
+      max-width: 820px;
+      z-index: 20;
+      display: flex;
+      gap: 10px;
+    }
+
+    #textInput {
+      flex: 1;
+      padding: 12px 18px;
+      border-radius: 24px;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      background: rgba(0, 0, 0, 0.5);
+      color: #fff;
+      font-size: 16px;
+      backdrop-filter: blur(5px);
+      outline: none;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+    }
+    #textInput::placeholder {
+      color: rgba(255, 255, 255, 0.4);
+    }
+
+    #ttsBtn, #micBtn, #sendBtn {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      color: #fff;
+      border-radius: 24px;
+      padding: 10px 20px;
+      cursor: pointer;
+      font-size: 16px;
+      backdrop-filter: blur(5px);
+      transition: background 0.2s, border-color 0.2s;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    #ttsBtn:hover, #micBtn:hover, #sendBtn:hover {
+      background: rgba(255, 255, 255, 0.16);
+    }
+    #ttsBtn.muted {
+      opacity: 0.5;
+    }
+    #micBtn.recording {
+      background: rgba(255, 50, 50, 0.5);
+      border-color: rgba(255, 50, 50, 0.8);
+      animation: pulse 1.5s infinite;
     }
 
     .ai-text {
@@ -410,6 +463,13 @@
     <div class="user-text" id="userText"></div>
   </div>
 
+  <div class="input-container">
+    <button id="ttsBtn" title="Toggle Speech">🔊</button>
+    <button id="micBtn" title="Voice Input">🎤</button>
+    <input type="text" id="textInput" placeholder="メッセージを入力..." />
+    <button id="sendBtn">送信</button>
+  </div>
+
   <script>
     // ── Elements ──────────────────────────────────────────────────────────────
     const startOverlay = document.getElementById('startOverlay');
@@ -423,6 +483,10 @@
     const langToggle = document.getElementById('langToggle');
     const settingsToggle = document.getElementById('settingsToggle');
     const settingsPanel = document.getElementById('settingsPanel');
+    const textInput = document.getElementById('textInput');
+    const ttsBtn = document.getElementById('ttsBtn');
+    const micBtn = document.getElementById('micBtn');
+    const sendBtn = document.getElementById('sendBtn');
 
     // ── i18n ──────────────────────────────────────────────────────────────────
     let currentLang = 'ja';
@@ -438,6 +502,8 @@
         sysPrompt: 'You are a kind and concise AI assistant. Please answer naturally in Japanese.',
         recogLang: 'ja-JP',
         ttsLang: 'ja-JP',
+        placeholder: 'メッセージを入力...',
+        send: '送信',
       },
       en: {
         start: 'Tap to Start',
@@ -450,6 +516,8 @@
         sysPrompt: 'You are a helpful, concise AI assistant. Please respond in English naturally as if in a conversation.',
         recogLang: 'en-US',
         ttsLang: 'en-US',
+        placeholder: 'Enter a message...',
+        send: 'Send',
       },
     };
     const t = key => i18n[currentLang][key];
@@ -476,6 +544,8 @@
     let currentAIReply = '';
     // 生成中のfetchを中断するためのAbortController(バージイン用)
     let currentAbortController = null;
+    let isMicRequested = false;
+    let isTtsEnabled = true;
     const serverUrl = 'http://127.0.0.1:8000/v1/chat/completions';
 
     // recognitionを二重起動しないようにガードしつつ開始する。
@@ -493,9 +563,50 @@
     function scheduleRestart(delay = 150) {
       clearTimeout(restartTimer);
       restartTimer = setTimeout(() => {
-        if (isActive) startRecognition();
+        if (isActive && isMicRequested) startRecognition();
       }, delay);
     }
+
+    function handleSendText() {
+      const text = textInput.value.trim();
+      if (text) {
+        userText.textContent = text;
+        aiText.textContent = '';
+        textInput.value = '';
+        sendToAI(text);
+      }
+    }
+    sendBtn.addEventListener('click', handleSendText);
+    textInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.isComposing) handleSendText();
+    });
+
+    ttsBtn.addEventListener('click', () => {
+      isTtsEnabled = !isTtsEnabled;
+      ttsBtn.textContent = isTtsEnabled ? '🔊' : '🔇';
+      ttsBtn.classList.toggle('muted', !isTtsEnabled);
+      if (!isTtsEnabled && isSpeaking) {
+        window.speechSynthesis.cancel();
+        activeUtterances = 0;
+        isSpeaking = false;
+        if (streamFinished) finishGenerationAndListen();
+      }
+    });
+
+    micBtn.addEventListener('click', () => {
+      if (!isMicRequested) {
+        isMicRequested = true;
+        micBtn.classList.add('recording');
+        if (!recognition) initRecognition();
+        startRecognition();
+        statusText.textContent = t('listening');
+      } else {
+        isMicRequested = false;
+        micBtn.classList.remove('recording');
+        if (recognition) recognition.stop();
+        statusText.textContent = 'Ready';
+      }
+    });
 
     // ── エコー(AI自身の声)判定 ──────────────────────────────────────────────
     // 記号・空白を取り除いて比較しやすくする
@@ -553,7 +664,7 @@
       finalTranscript = '';
       aiText.textContent = '';
       userText.style.opacity = '1';
-      statusText.textContent = t('listening');
+      statusText.textContent = isMicRequested ? t('listening') : 'Ready';
     }
 
     // 生成・読み上げが完全に終わったときに呼ぶ後始末処理
@@ -564,8 +675,10 @@
       finalTranscript = '';
       userText.textContent = '';
       userText.style.opacity = '1';
-      statusText.textContent = t('listening');
-      startRecognition();
+      statusText.textContent = isMicRequested ? t('listening') : 'Ready';
+      if (isMicRequested) {
+        startRecognition();
+      }
     }
 
     // ── Language toggle ───────────────────────────────────────────────────────
@@ -574,6 +687,8 @@
       document.querySelectorAll('.lang-btn').forEach(b =>
         b.classList.toggle('active', b.dataset.lang === lang));
       startLabel.textContent = t('start');
+      if (textInput) textInput.placeholder = t('placeholder');
+      if (sendBtn) sendBtn.textContent = t('send');
 
       if (!isActive) return;
 
@@ -593,7 +708,7 @@
         // initRecognition()内でrecognitionIdが更新されるため、
         // 古いインスタンスの遅延イベントは自動的に無視される
         initRecognition();
-        if (!isGenerating && !isSpeaking) startRecognition();
+        if (!isGenerating && !isSpeaking && isMicRequested) startRecognition();
       }
     }
     langToggle.addEventListener('click', e => {
@@ -617,7 +732,7 @@
     // 参考コードと同じ設計:
     // TTS が全部終わったら recognition.start() で再起動する
     function speakSentence(text, lang) {
-      if (!text.trim()) return;
+      if (!text.trim() || !isTtsEnabled) return;
       const utt = new SpeechSynthesisUtterance(text);
       utt.lang = lang;
       utt.rate = 1.0; utt.pitch = 1.0; utt.volume = 1.0;
@@ -664,7 +779,7 @@
         visContainer.style.opacity = '1';
         userText.style.opacity = '1';
         // 生成中/発話中に再起動された場合はステータス表示を上書きしない
-        if (!isGenerating && !isSpeaking) statusText.textContent = t('listening');
+        if (!isGenerating && !isSpeaking && isMicRequested) statusText.textContent = t('listening');
       };
 
       recognition.onresult = (event) => {
@@ -730,19 +845,24 @@
             document.querySelectorAll('.lang-btn').forEach(b =>
               b.classList.toggle('active', b.dataset.lang === nextLang));
             initRecognition();
-            startRecognition();
+            if (isMicRequested) startRecognition();
             return;
           }
         }
 
-        if (isActive) {
+        if (isActive && isMicRequested) {
           scheduleRestart();
+        } else {
+          micBtn.classList.remove('recording');
         }
       };
     }
 
     // ── AI call ───────────────────────────────────────────────────────────────
     async function sendToAI(promptText) {
+      if (currentAbortController) {
+        try { currentAbortController.abort(); } catch (_) { }
+      }
       isGenerating = true;
       streamFinished = false;
       currentAIReply = '';
@@ -956,7 +1076,11 @@
         analyser.fftSize = Math.pow(2, opts.fft);
         analyser.minDecibels = opts.minDecibels;
         analyser.maxDecibels = 0;
-        analyser.getByteFrequencyData(micFreqs);
+        if (typeof isMicRequested !== 'undefined' && isMicRequested) {
+          analyser.getByteFrequencyData(micFreqs);
+        } else {
+          micFreqs.fill(0);
+        }
         freqs = micFreqs;
       }
 
@@ -1187,7 +1311,7 @@
       loadVoices();
       await initAudio();
       initRecognition();
-      startRecognition();
+      // 音声認識はマイクボタンを押すまで開始しない
     });
   </script>
 </body>
